@@ -1,29 +1,14 @@
 {
-  "name": "my-marketplace-site",
+  "name": "market-server",
   "version": "1.0.0",
   "main": "server.js",
+  "type": "module",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js"
+    "start": "node server.js"
   },
-  "keywords": [
-    "marketplace",
-    "products",
-    "whatsapp",
-    "nodejs",
-    "sqlite"
-  ],
-  "author": "",
-  "license": "ISC",
-  "description": "A marketplace platform for users to list products and connect with buyers via WhatsApp.",
   "dependencies": {
     "express": "^4.19.2",
-    "better-sqlite3": "^11.1.2",
-    "multer": "^1.4.5-lts.1",
-    "dotenv": "^16.4.5",
-    "ws": "^8.17.0"
-  },
-  "devDependencies": {
-    "nodemon": "^3.1.4"
+    "ws": "^8.16.0",
+    "multer": "^1.4.5"
   }
 }
