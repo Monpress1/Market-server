@@ -5,7 +5,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node server.js",
-    "dev": "nodemon server.js" // Recommended for development
+    "dev": "nodemon server.js"
   },
   "keywords": [
     "marketplace",
@@ -18,14 +18,12 @@
   "license": "ISC",
   "description": "A marketplace platform for users to list products and connect with buyers via WhatsApp.",
   "dependencies": {
-    "express": "^4.19.2",           // Essential for HTTP server
-    "better-sqlite3": "^11.1.2",     // Recommended alternative to 'sqlite3' for simpler API
-    "multer": "^1.4.5-lts.1",        // For handling product image uploads
-    "dotenv": "^16.4.5"              // For environment variables like DB_PATH on Railway
-    // Optional: bcryptjs for password hashing if you implement seller login
-    // "bcryptjs": "^2.4.3"
+    "express": "^4.19.2",
+    "better-sqlite3": "^11.1.2",
+    "multer": "^1.4.5-lts.1",
+    "dotenv": "^16.4.5"
   },
   "devDependencies": {
-    "nodemon": "^3.1.4"             // For auto-restarting server during dev
+    "nodemon": "^3.1.4"
   }
 }
