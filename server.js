@@ -1,75 +1,59 @@
 const express = require('express');
-const path = require('path');
-const multer = require('multer');
-const sqlite3 = require('better-sqlite3');
 const http = require('http');
-const { Server } = require('socket.io');
-require('dotenv').config();
+const WebSocket = require('ws');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const wss = new WebSocket.Server({ server });
 
-// Middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, 'public')));
+const products = [];
 
-// DB setup
-const db = new sqlite3('marketplace.db');
+// Serve static uploads
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-db.prepare(`
-  CREATE TABLE IF NOT EXISTS products (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT,
-    price TEXT,
-    image TEXT,
-    contact TEXT,
-    created_at TEXT
-  )
-`).run();
-
-// Multer setup for image uploads
+// Handle file uploads via POST (just image file)
 const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, path.join(__dirname, 'public/uploads'));
-  },
-  filename: function (req, file, cb) {
-    const uniqueName = Date.now() + '-' + file.originalname;
-    cb(null, uniqueName);
+  destination: 'uploads/',
+  filename: (_, file, cb) => {
+    cb(null, Date.now() + '-' + file.originalname);
   }
 });
 const upload = multer({ storage });
 
-// Routes
-app.post('/api/products', upload.single('image'), (req, res) => {
-  const { name, price, contact } = req.body;
-  const image = req.file ? '/uploads/' + req.file.filename : '';
-  const created_at = new Date().toISOString();
-
-  const stmt = db.prepare(`INSERT INTO products (name, price, image, contact, created_at) VALUES (?, ?, ?, ?, ?)`);
-  stmt.run(name, price, image, contact, created_at);
-
-  io.emit('new-product', { name, price, image, contact, created_at });
-
-  res.json({ success: true });
+app.post('/upload', upload.single('image'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file' });
+  return res.json({ filename: req.file.filename });
 });
 
-app.get('/api/products', (req, res) => {
-  const rows = db.prepare(`SELECT * FROM products ORDER BY id DESC`).all();
-  res.json(rows);
-});
+wss.on('connection', ws => {
+  console.log('✅ Client connected');
 
-// WebSocket setup
-io.on('connection', (socket) => {
-  console.log('A user connected');
-  socket.on('disconnect', () => {
-    console.log('User disconnected');
+  // Send all products on new connection
+  ws.send(JSON.stringify({ type: 'all-products', products }));
+
+  // Handle incoming messages
+  ws.on('message', msg => {
+    try {
+      const data = JSON.parse(msg);
+      if (data.type === 'new-product') {
+        products.push(data.product);
+        // Broadcast to all clients
+        wss.clients.forEach(client => {
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify({ type: 'product-added', product: data.product }));
+          }
+        });
+      }
+    } catch (e) {
+      console.error('❌ Error parsing message:', e);
+    }
   });
+
+  ws.on('close', () => console.log('❌ Client disconnected'));
 });
 
-// Start server
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-});
+server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
