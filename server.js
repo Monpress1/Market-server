@@ -1,71 +1,47 @@
-// server.js
 const express = require('express');
 const http = require('http');
-const path = require('path');
-const multer = require('multer');
 const WebSocket = require('ws');
+const path = require('path');
 const fs = require('fs');
+const cors = require('cors');
 
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-// Store products in memory
-let products = [];
+app.use(cors());
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Setup file upload destination
-const storage = multer.diskStorage({
-  destination: 'public/uploads/',
-  filename: (req, file, cb) => {
-    const uniqueName = Date.now() + '-' + file.originalname;
-    cb(null, uniqueName);
+const products = [
+  {
+    name: 'Rice 25kg',
+    description: 'Premium long grain rice',
+    price: 14000,
+    image: 'rice.jpg',
+    whatsapp: '2347012345678'
+  },
+  {
+    name: 'Red Oil 5L',
+    description: 'Pure red palm oil',
+    price: 6000,
+    image: 'oil.jpg',
+    whatsapp: '2348098765432'
   }
-});
-const upload = multer({ storage });
+];
 
-app.use(express.static('public'));
-
-// Serve frontend fallback
-app.get('/', (req, res) => {
-  res.send('WebSocket Marketplace Server is running.');
-});
-
-// WebSocket logic
+// Handle WebSocket connection
 wss.on('connection', (ws) => {
-  console.log('Client connected');
-
-  // Send current product list
-  ws.send(JSON.stringify({ type: 'init', products }));
+  console.log('Client connected via WebSocket');
 
   ws.on('message', (msg) => {
-    try {
-      const data = JSON.parse(msg);
-      if (data.type === 'addProduct') {
-        products.push(data.product);
-        broadcast({ type: 'newProduct', product: data.product });
-      }
-    } catch (err) {
-      console.error('Invalid WS message:', err.message);
+    const data = JSON.parse(msg);
+    if (data.type === 'getProducts') {
+      ws.send(JSON.stringify({ type: 'products', data: products }));
     }
   });
-
-  ws.on('close', () => console.log('Client disconnected'));
 });
 
-function broadcast(data) {
-  wss.clients.forEach(client => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(JSON.stringify(data));
-    }
-  });
-}
-
-// Image upload endpoint (still HTTP-based)
-app.post('/upload', upload.single('image'), (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-  res.json({ filename: req.file.filename });
-});
-
-// Port
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+server.listen(PORT, () => {
+  console.log(`Server listening on port ${PORT}`);
+});
