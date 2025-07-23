@@ -5,15 +5,30 @@ const path = require('path');
 const fs = require('fs');
 require('dotenv').config(); // Load environment variables
 
+// --- IMPORTANT: Add these lines at the very top for robustness ---
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    // You might want to log more details here or send an alert
+    // For a critical app, you might consider process.exit(1) to restart,
+    // but for debugging, letting it log is key.
+});
+
+process.on('uncaughtException', (error) => {
+    console.error('Uncaught Exception:', error.message, error.stack);
+    // This catches synchronous errors that weren't handled by try/catch
+    // For a critical app, you would often exit here after logging.
+    process.exit(1); // Exit cleanly so Railway can restart (and hopefully log more).
+});
+// --- End of critical additions ---
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // --- Database Setup ---
-// Use Railway's volume mount path or a default local path
 const DATABASE_DIR = process.env.DATABASE_VOLUME_PATH || path.join(__dirname, 'data');
 const DB_FILE = path.join(DATABASE_DIR, 'marketplace.sqlite');
-const UPLOADS_DIR_NAME = 'uploads'; // Name of the subdirectory for uploads
-const UPLOADS_PATH = path.join(DATABASE_DIR, UPLOADS_DIR_NAME); // Full path for uploads
+const UPLOADS_DIR_NAME = 'uploads';
+const UPLOADS_PATH = path.join(DATABASE_DIR, UPLOADS_DIR_NAME);
 
 // Ensure the database directory and uploads directory exist
 if (!fs.existsSync(DATABASE_DIR)) {
@@ -32,15 +47,13 @@ if (!fs.existsSync(UPLOADS_PATH)) {
     console.log(`Uploads directory already exists at: ${UPLOADS_PATH}`);
 }
 
-
 let db;
 
 function connectAndInitializeDB() {
     try {
         db = sqlite3(DB_FILE);
-        db.pragma('journal_mode = WAL'); // Improve concurrency and durability
+        db.pragma('journal_mode = WAL');
 
-        // Create products table if it doesn't exist
         db.exec(`
             CREATE TABLE IF NOT EXISTS products (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -56,18 +69,16 @@ function connectAndInitializeDB() {
         console.log('Database connected and schema initialized.');
     } catch (err) {
         console.error('Error connecting to or initializing database:', err.message);
-        // Exit the process if database connection fails critically
-        process.exit(1);
+        process.exit(1); // Exit if DB connection fails critically
     }
 }
 
-// Connect to DB immediately
 connectAndInitializeDB();
 
-// --- Multer Storage Setup for Image Uploads ---
+// --- Multer Storage Setup ---
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        cb(null, UPLOADS_PATH); // Files will be saved in the /data/uploads directory
+        cb(null, UPLOADS_PATH);
     },
     filename: (req, file, cb) => {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
@@ -92,17 +103,15 @@ const upload = multer({
 });
 
 // --- Middleware ---
-app.use(express.json()); // To parse JSON request bodies
-app.use(express.urlencoded({ extended: true })); // To parse URL-encoded request bodies
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Serve static files from the 'public' directory (your frontend)
-app.use(express.static('public'));
-
-// Serve uploaded images statically
-// The client will request images from /uploads/, and Express will find them in UPLOADS_PATH
-app.use('/uploads', express.static(UPLOADS_PATH));
+// --- IMPORTANT: Serve static files before API routes ---
+app.use(express.static(path.join(__dirname, 'public'))); // Serve your frontend files
+app.use('/uploads', express.static(UPLOADS_PATH)); // Serve uploaded images
 
 // --- API Routes ---
+// These MUST be defined AFTER static file serving, otherwise static files might be served instead of API data.
 
 // 1. Get All Products
 app.get('/api/products', (req, res) => {
@@ -139,14 +148,12 @@ app.post('/api/products', upload.single('productImage'), async (req, res) => {
     console.log("Uploaded File (req.file):", req.file);
     console.log("-------------------------------------");
 
-    // For now, we'll use a placeholder user_id=1. In a real app, this would come from the authenticated seller.
-    const userId = 1;
+    const userId = 1; // Placeholder for now
 
     const { name, description, price, whatsapp_number } = req.body;
-    const imageUrl = req.file ? `/uploads/${path.basename(req.file.path)}` : null; // Path accessible from frontend
+    const imageUrl = req.file ? `/uploads/${path.basename(req.file.path)}` : null;
 
     if (!name || !whatsapp_number) {
-        // If an image was uploaded but required fields are missing, delete the image
         if (req.file) {
             fs.unlink(req.file.path, (err) => {
                 if (err) console.error('Error deleting incomplete upload:', err);
@@ -161,7 +168,6 @@ app.post('/api/products', upload.single('productImage'), async (req, res) => {
         res.status(201).json({ message: 'Product uploaded successfully', productId: info.lastInsertRowId, imageUrl });
     } catch (error) {
         console.error('Error uploading product:', error);
-        // If DB insertion fails but image was uploaded, clean up the image
         if (req.file) {
             fs.unlink(req.file.path, (err) => {
                 if (err) console.error('Error deleting failed upload:', err);
@@ -171,19 +177,18 @@ app.post('/api/products', upload.single('productImage'), async (req, res) => {
     }
 });
 
-// --- Error Handling Middleware (IMPORTANT for Multer errors) ---
-// This must be placed AFTER all your routes and AFTER app.use(express.static('public'))
+// --- IMPORTANT: General Error Handling Middleware (AFTER all routes) ---
+// This middleware catches errors passed by 'next(err)' from routes/other middleware
+// and also catches Multer-specific errors.
 app.use((err, req, res, next) => {
     if (err instanceof multer.MulterError) {
-        // A Multer error occurred when uploading.
         console.error('Multer Error:', err.code, err.message);
         return res.status(400).json({ message: `File upload error: ${err.message}` });
     } else if (err) {
-        // An unknown error occurred.
-        console.error('Unhandled Server Error:', err.message, err.stack);
+        console.error('Unhandled Server Error (Caught by Express Default):', err.message, err.stack);
         return res.status(500).json({ message: `Internal server error: ${err.message}` });
     }
-    next(); // Pass to next middleware if no error
+    next();
 });
 
 
