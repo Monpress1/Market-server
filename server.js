@@ -1,79 +1,75 @@
-const express = require("express");
+const express = require('express');
+const path = require('path');
+const multer = require('multer');
+const sqlite3 = require('better-sqlite3');
+const http = require('http');
+const { Server } = require('socket.io');
+require('dotenv').config();
+
 const app = express();
-const http = require("http").createServer(app);
-const WebSocket = require("ws");
-const wss = new WebSocket.Server({ server: http });
+const server = http.createServer(app);
+const io = new Server(server);
 
-const multer = require("multer");
-const path = require("path");
-const fs = require("fs");
-const Database = require("better-sqlite3");
+// Middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(express.static(path.join(__dirname, 'public')));
 
-const db = new Database("market.db");
-const PORT = process.env.PORT || 3000;
+// DB setup
+const db = new sqlite3('marketplace.db');
 
-// Setup DB
 db.prepare(`
   CREATE TABLE IF NOT EXISTS products (
-    id INTEGER PRIMARY KEY,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT,
-    description TEXT,
-    price REAL,
+    price TEXT,
     image TEXT,
-    whatsapp TEXT
+    contact TEXT,
+    created_at TEXT
   )
 `).run();
 
-// Multer config
-const upload = multer({ dest: "uploads/" });
-
-// Middleware
-app.use(express.static("public"));
-app.use("/uploads", express.static("uploads"));
-app.use(express.json());
-
-// Get products
-app.get("/api/products", (req, res) => {
-  try {
-    const products = db.prepare("SELECT * FROM products ORDER BY id DESC").all();
-    res.json(products);
-  } catch (e) {
-    console.error("DB error:", e);
-    res.status(500).json([]);
+// Multer setup for image uploads
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, path.join(__dirname, 'public/uploads'));
+  },
+  filename: function (req, file, cb) {
+    const uniqueName = Date.now() + '-' + file.originalname;
+    cb(null, uniqueName);
   }
 });
+const upload = multer({ storage });
 
-// Upload product
-app.post("/api/upload", upload.single("image"), (req, res) => {
-  const { name, description, price, whatsapp } = req.body;
-  const image = req.file ? `/uploads/${req.file.filename}` : null;
+// Routes
+app.post('/api/products', upload.single('image'), (req, res) => {
+  const { name, price, contact } = req.body;
+  const image = req.file ? '/uploads/' + req.file.filename : '';
+  const created_at = new Date().toISOString();
 
-  if (!name || !price || !whatsapp || !image) {
-    return res.status(400).json({ error: "Missing required fields." });
-  }
+  const stmt = db.prepare(`INSERT INTO products (name, price, image, contact, created_at) VALUES (?, ?, ?, ?, ?)`);
+  stmt.run(name, price, image, contact, created_at);
 
-  db.prepare(`
-    INSERT INTO products (name, description, price, image, whatsapp)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(name, description, price, image, whatsapp);
+  io.emit('new-product', { name, price, image, contact, created_at });
 
-  const newProduct = { name, description, price, image, whatsapp };
+  res.json({ success: true });
+});
 
-  // Notify all connected WebSocket clients
-  wss.clients.forEach(client => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(JSON.stringify({ type: "new-product", product: newProduct }));
-    }
+app.get('/api/products', (req, res) => {
+  const rows = db.prepare(`SELECT * FROM products ORDER BY id DESC`).all();
+  res.json(rows);
+});
+
+// WebSocket setup
+io.on('connection', (socket) => {
+  console.log('A user connected');
+  socket.on('disconnect', () => {
+    console.log('User disconnected');
   });
-
-  res.json({ success: true, product: newProduct });
-});
-
-// WebSocket connection
-wss.on("connection", socket => {
-  console.log("WebSocket client connected.");
-  socket.send(JSON.stringify({ type: "welcome", message: "Connected!" }));
 });
 
 // Start server
-http.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
+});
